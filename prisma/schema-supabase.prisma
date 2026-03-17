@@ -1,0 +1,289 @@
+// ============================================
+// MODELO DE NEGOCIO SaaS PARA GESTIÓN INTELIGENTE DE PQRS
+// Microempresas del Área Metropolitana de Cúcuta
+// Proyecto SENA - Etapa Productiva I+D+i
+// ============================================
+//
+// SCHEMA PARA SUPABASE (PostgreSQL)
+// ============================================
+//
+// INSTRUCCIONES DE USO:
+// 1. Para desarrollo local con SQLite: usa schema.prisma original
+// 2. Para Supabase/Vercel: reemplaza el contenido de schema.prisma con este archivo
+// 3. Ejecuta: npx prisma generate
+//
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// MODELO: EMPRESA (Cliente SaaS)
+// ============================================
+model Empresa {
+  id               String   @id @default(cuid())
+  nombre           String
+  nit              String   @unique
+  direccion        String?
+  telefono         String?
+  email            String   @unique
+  ciudad           String   @default("Cúcuta")
+
+  // Campos de Suscripción (CORE del modelo SaaS)
+  planType         PlanType   @default(TRIAL)
+  trialStartDate   DateTime?  @default(now())
+  trialEndDate     DateTime?
+  isActive         Boolean    @default(true)
+  subscriptionStart DateTime?
+  subscriptionEnd   DateTime?
+
+  // Fechas de auditoría
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relaciones
+  usuarios         Usuario[]
+  pqrs             Pqrs[]
+  categorias       Categoria[]
+  respuestas       RespuestaAutomatica[]
+
+  @@map("empresas")
+}
+
+// ============================================
+// MODELO: USUARIO (Empleados de la empresa)
+// ============================================
+model Usuario {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  nombre       String
+  apellido     String?
+  rol          RolUsuario @default(EMPLEADO)
+  activo       Boolean  @default(true)
+  empresaId    String
+
+  // Fechas de auditoría
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  ultimoAcceso DateTime?
+
+  // Relaciones
+  empresa       Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  pqrsAsignadas Pqrs[]
+  respuestas    Seguimiento[]
+
+  @@map("usuarios")
+}
+
+// ============================================
+// MODELO: PQRS (Peticiones, Quejas, Reclamos, Sugerencias)
+// ============================================
+model Pqrs {
+  id              String   @id @default(cuid())
+  radicado        String   @unique
+  tipo            TipoPqrs
+  titulo          String
+  descripcion     String
+  prioridad       Prioridad @default(MEDIA)
+  estado          EstadoPqrs @default(PENDIENTE)
+
+  // Clasificación IA
+  categoriaIA     String?  // Categoría detectada automáticamente
+  confianzaIA     Float?   // Nivel de confianza de la clasificación (0-1)
+  sentimientoIA   Sentimiento? // Análisis de sentimiento
+
+  // Datos del ciudadano
+  nombreCiudadano String
+  emailCiudadano  String?
+  telefonoCiudadano String?
+  direccionCiudadano String?
+
+  // Fechas importantes
+  fechaRecepcion  DateTime @default(now())
+  fechaLimite     DateTime? // 15 días hábiles según ley
+  fechaCierre     DateTime?
+
+  // Asignación
+  asignadoA       String?
+  asignado        Usuario?  @relation(fields: [asignadoA], references: [id])
+
+  // Relaciones
+  empresaId       String
+  empresa         Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  categoriaId     String?
+  categoria       Categoria? @relation(fields: [categoriaId], references: [id])
+  seguimientos    Seguimiento[]
+  archivos        Archivo[]
+
+  // Fechas de auditoría
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("pqrs")
+}
+
+// ============================================
+// MODELO: CATEGORÍA (Para clasificación)
+// ============================================
+model Categoria {
+  id          String   @id @default(cuid())
+  nombre      String
+  descripcion String?
+  color       String   @default("#3B82F6")
+  activo      Boolean  @default(true)
+
+  // Relaciones
+  empresaId   String
+  empresa     Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  pqrs        Pqrs[]
+
+  // Fechas de auditoría
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([nombre, empresaId])
+  @@map("categorias")
+}
+
+// ============================================
+// MODELO: SEGUIMIENTO (Historial de PQRS)
+// ============================================
+model Seguimiento {
+  id          String   @id @default(cuid())
+  descripcion String
+  tipo        TipoSeguimiento
+
+  // Relaciones
+  pqrsId      String
+  pqrs        Pqrs @relation(fields: [pqrsId], references: [id], onDelete: Cascade)
+  usuarioId   String
+  usuario     Usuario @relation(fields: [usuarioId], references: [id])
+
+  // Fechas
+  createdAt   DateTime @default(now())
+
+  @@map("seguimientos")
+}
+
+// ============================================
+// MODELO: ARCHIVO ADJUNTO
+// ============================================
+model Archivo {
+  id          String   @id @default(cuid())
+  nombre      String
+  tipo        String   // MIME type
+  tamaño      Int      // Bytes
+  url         String   // Ruta del archivo
+
+  // Relaciones
+  pqrsId      String
+  pqrs        Pqrs @relation(fields: [pqrsId], references: [id], onDelete: Cascade)
+
+  // Fechas
+  createdAt   DateTime @default(now())
+
+  @@map("archivos")
+}
+
+// ============================================
+// MODELO: RESPUESTA AUTOMÁTICA (Plantillas)
+// ============================================
+model RespuestaAutomatica {
+  id          String   @id @default(cuid())
+  titulo      String
+  contenido   String
+  categoria   String   // Tipo de PQRS para la que aplica
+
+  // Relaciones
+  empresaId   String
+  empresa     Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  // Fechas
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("respuestas_automaticas")
+}
+
+// ============================================
+// MODELO: ESTADÍSTICAS (Para Dashboard)
+// ============================================
+model Estadistica {
+  id              String   @id @default(cuid())
+  fecha           DateTime @default(now())
+  totalPqrs       Int      @default(0)
+  pendientes      Int      @default(0)
+  enProceso       Int      @default(0)
+  resueltos       Int      @default(0)
+  tiempoPromedio  Float?   // En días
+
+  empresaId       String
+
+  @@map("estadisticas")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum PlanType {
+  TRIAL      // Prueba gratuita 30 días
+  MICRO      // Plan básico para microempresas
+  ENTERPRISE // Plan empresarial completo
+}
+
+enum RolUsuario {
+  ADMIN      // Administrador de la empresa
+  EMPLEADO   // Empleado con acceso limitado
+  SUPERADMIN // Administrador del sistema
+}
+
+enum TipoPqrs {
+  PETICION    // Solicitud de información o servicio
+  QUEJA       // Manifestación de inconformidad
+  RECLAMO     // Requerimiento por insatisfacción
+  SUGERENCIA  // Propuesta de mejora
+  DENUNCIA    // Reporte de irregularidades
+  FELICITACION // Reconocimiento positivo
+}
+
+enum EstadoPqrs {
+  PENDIENTE     // Recibido, sin asignar
+  ASIGNADO      // Asignado a un empleado
+  EN_PROCESO    // Siendo atendido
+  ESPERA_INFO   // Esperando información del ciudadano
+  RESUELTO      // Solucionado
+  CERRADO       // Cerrado definitivamente
+  RECHAZADO     // No procede
+}
+
+enum Prioridad {
+  BAJA
+  MEDIA
+  ALTA
+  URGENCIA
+}
+
+enum Sentimiento {
+  POSITIVO
+  NEUTRO
+  NEGATIVO
+  MUY_NEGATIVO
+}
+
+enum TipoSeguimiento {
+  COMENTARIO
+  CAMBIO_ESTADO
+  ASIGNACION
+  RESPUESTA
+  CIERRE
+  REAPERTURA
+}
